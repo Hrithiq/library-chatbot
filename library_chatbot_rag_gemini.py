@@ -16,9 +16,7 @@ from langchain_classic.chains import create_retrieval_chain
 # LOAD DATA
 # -------------------------------
 @st.cache_data
-def load_documents():
-    df = pd.read_excel("Library_Book_titles_with_dummy_rack_data.xlsx")
-
+def load_documents_from_df(df):
     docs = []
     for _, row in df.iterrows():
         docs.append(
@@ -60,6 +58,9 @@ def build_rag_chain(_vectordb):
     prompt = ChatPromptTemplate.from_template(
         """
     You are a professional library assistant.
+    
+    From the context, identify ALL relevant books.
+    Return ONE entry per book.
 
     From the context, extract:
     - Book Title
@@ -75,8 +76,10 @@ def build_rag_chain(_vectordb):
     Aisle:
     Rack:
     Section:
+    (each in a new line)
 
-    If information is missing, say "Not available".
+    If multiple books match, list multiple blocks.
+    If no book matches, say: "No matching books found."
 
     Context:
     {context}
@@ -88,10 +91,29 @@ def build_rag_chain(_vectordb):
 
 
     doc_chain = create_stuff_documents_chain(llm, prompt)
-    retriever = _vectordb.as_retriever(search_kwargs={"k": 4})
+    retriever = _vectordb.as_retriever(search_kwargs={"k": 8})
 
     return create_retrieval_chain(retriever, doc_chain)
 
+# -------------------------------
+# RENDER MULTI-BOOK RESULTS
+# -------------------------------
+def render_books(answer_text):
+    books = answer_text.split("---")
+    for book in books:
+        if book.strip():
+            formatted_book = book.replace("\n", "<br>")
+            st.markdown(
+                f"""
+                <div style="border:1px solid #ddd;
+                            padding:12px;
+                            border-radius:8px;
+                            margin-bottom:10px;">
+                    {formatted_book}
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
 
 # -------------------------------
@@ -136,23 +158,41 @@ with st.sidebar:
         🔹 Instant rack location  
 
         **Example queries:**
-        - Where is *Introduction to Algorithms*?
-        - Which rack has books by *Cormen*?
-        - Find books written by *George Orwell*
+        - Where is *Essentials of Physical Chemistry*?
+        - Which rack has books by *Jones Joy*?
+        - Find books written by *Hubbard Ron L*
 
         ---
         **Tech Stack**
-        - Gemini 2.5 Flash
         - FAISS Vector Search
         - RAG Architecture
         """
     )
+
+    st.markdown("---")
+    st.subheader("🔐 Admin Panel")
+
+    uploaded_file = st.file_uploader(
+        "Upload Library Excel",
+        type=["xlsx"]
+    )
+
 
 # -------------------------------
 # SESSION STATE
 # -------------------------------
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+
+if "library_df" not in st.session_state:
+    st.session_state.library_df = None
+
+if uploaded_file:
+    st.session_state.library_df = pd.read_excel(uploaded_file)
+    st.cache_data.clear()
+    st.cache_resource.clear()
+    st.sidebar.success("Library data uploaded and indexed")
+
 
 # -------------------------------
 # HEADER
@@ -172,7 +212,15 @@ if query:
     st.session_state.chat_history.append(("user", query))
 
     with st.spinner("Searching library..."):
-        docs = load_documents()
+        if st.session_state.library_df is not None:
+            docs = load_documents_from_df(st.session_state.library_df)
+            st.cache_resource.clear()
+            st.cache_data.clear()
+
+        else:
+            df = pd.read_excel("Library_Book_titles_with_dummy_rack_data.xlsx")
+            docs = load_documents_from_df(df)
+
         vectordb = build_vectorstore(docs)
         rag_chain = build_rag_chain(vectordb)
         result = rag_chain.invoke({"input": query})
@@ -185,8 +233,11 @@ if query:
 # -------------------------------
 for role, msg in st.session_state.chat_history:
     css_class = "user" if role == "user" else "assistant"
-    st.markdown(
-        f"<div class='chat-bubble {css_class}'>{msg}</div>",
-        unsafe_allow_html=True
-    )
+    if role == "assistant":
+        render_books(msg)
+    else:
+        st.markdown(
+            f"<div class='chat-bubble {css_class}'>{msg}</div>",
+            unsafe_allow_html=True
+        )
 
