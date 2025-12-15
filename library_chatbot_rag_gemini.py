@@ -54,7 +54,7 @@ def build_rag_chain(_vectordb):
     llm = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
         temperature=0,
-        google_api_key="AIzaSyCjDaHoq-z9wLwJrqCSdRSnQOg4iAJjtH0"
+        google_api_key=os.getenv("GOOGLE_API_KEY")
     )
 
     prompt = ChatPromptTemplate.from_template(
