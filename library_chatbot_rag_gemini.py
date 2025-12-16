@@ -1,6 +1,8 @@
 import os
+import re
 import streamlit as st
 import pandas as pd
+import speech_recognition as sr
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -11,6 +13,35 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
 from langchain_classic.chains import create_retrieval_chain
 
+
+# -------------------------------
+# PREPROCESSING
+# -------------------------------
+def preprocess_query(text: str) -> str:
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9\s]", "", text)
+    return text.strip()
+
+
+# -------------------------------
+# SPEECH TO TEXT
+# -------------------------------
+def speech_to_text():
+    recognizer = sr.Recognizer()
+    with sr.Microphone() as source:
+        st.info("🎤 Listening... Speak now")
+        audio = recognizer.listen(source)
+
+    try:
+        text = recognizer.recognize_google(audio)
+        st.success(f"🗣️ You said: {text}")
+        return preprocess_query(text)
+    except sr.UnknownValueError:
+        st.error("Could not understand audio")
+    except sr.RequestError:
+        st.error("Speech service unavailable")
+
+    return None
 
 # -------------------------------
 # LOAD DATA
@@ -161,13 +192,22 @@ with st.sidebar:
         - Where is *Essentials of Physical Chemistry*?
         - Which rack has books by *Jones Joy*?
         - Find books written by *Hubbard Ron L*
-
         ---
-        **Tech Stack**
-        - FAISS Vector Search
-        - RAG Architecture
         """
     )
+
+    # st.subheader("📘 Controls")
+
+    # input_mode = st.radio(
+    #     "Input Mode",
+    #     ["Text", "Voice"]
+    # )
+
+    st.markdown(
+        """
+        **Tech Stack**
+        - FAISS Vector Search
+        - RAG Architecture""")
 
     st.markdown("---")
     st.subheader("🔐 Admin Panel")
@@ -200,10 +240,39 @@ if uploaded_file:
 st.title("📚 Library Assistant")
 st.caption("Ask where a book is located using its title or author")
 
+# # -------------------------------
+# # INPUT
+# # -------------------------------
+# query = None
+
+# if input_mode == "Text":
+#     query = st.chat_input("Ask a question about a book...")
+
+
+# else:
+#     if st.button("🎤 Speak"):
+#         query = speech_to_text()
+
+
 # -------------------------------
-# INPUT
+# INPUT ROW (TEXT + MIC)
 # -------------------------------
-query = st.chat_input("Ask a question about a book...")
+col_text, col_mic = st.columns([10, 1])
+
+with col_text:
+    user_text = st.chat_input("Ask about a book...")
+
+with col_mic:
+    mic_clicked = st.button("🎙️", help="Speak your query")
+
+
+query = None
+
+# Voice overrides text ONLY when mic clicked
+if mic_clicked:
+    query = speech_to_text()
+elif user_text:
+    query = preprocess_query(user_text)
 
 # -------------------------------
 # CHAT LOOP
